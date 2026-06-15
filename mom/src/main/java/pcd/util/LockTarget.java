@@ -13,6 +13,20 @@ public class LockTarget {
         return new LockTarget(this.path + "." + subChannelName);
     }
 
+    public static LockTarget of(String path) {
+        return new LockTarget(path);
+    }
+
+    public boolean conflictsWith(LockTarget other) {
+        return conflicts(this.path, other.path);
+    }
+
+    public static boolean conflicts(String firstPath, String secondPath) {
+        return firstPath.equals(secondPath)
+                || firstPath.startsWith(secondPath + ".")
+                || secondPath.startsWith(firstPath + ".");
+    }
+
     public String getPath() {
         return path;
     }

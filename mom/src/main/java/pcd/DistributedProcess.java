@@ -3,6 +3,8 @@ package pcd;
 import pcd.client.RabbitMQLockManagerClient;
 import pcd.util.LockTarget;
 
+import java.util.concurrent.FutureTask;
+
 public class DistributedProcess {
 
     public static final int WORK_DURATION = 5000;
@@ -14,27 +16,32 @@ public class DistributedProcess {
         this.lockManager = new RabbitMQLockManagerClient(processId, rabbitmqHost);
     }
 
-    public void executeCriticalSection(LockTarget target, long workDurationMs) throws InterruptedException {
-        System.out.printf("%n[%s] Attempting to acquire: %s%n", processId, target);
-
+    public Void executeCriticalSection(LockTarget target, long workDurationMs) throws InterruptedException {
+        boolean acquired = false;
         try {
+            System.out.printf("[%s] Requesting lock for %s%n", processId, target);
             lockManager.acquire(target);
-        } catch (InterruptedException e) {
-            System.err.printf("[%s] Timeout acquiring lock for: %s%n", processId, target);
-            throw e;
-        }
-
-        System.out.printf("[%s] CRITICAL SECTION STARTED for: %s%n", processId, target);
-
-        try {
+            acquired = true;
+            System.out.printf("[%s] ENTER critical section for %s%n", processId, target);
             Thread.sleep(workDurationMs);
-        } catch (InterruptedException e) {
-            System.err.printf("[%s] Interrupted during critical work.%n", processId);
-            throw e;
+            System.out.printf("[%s] EXIT critical section for %s%n", processId, target);
+            return null;
+        } finally {
+            if (acquired) {
+                System.out.printf("[%s] Releasing lock for %s%n", processId, target);
+                lockManager.release(target);
+            }
         }
+    }
 
-        System.out.printf("[%s] CRITICAL SECTION ENDED for: %s%n", processId, target);
-        lockManager.release(target);
+    public FutureTask<Void> executeAsync(LockTarget target) {
+        return executeAsync(target, WORK_DURATION);
+    }
+
+    public FutureTask<Void> executeAsync(LockTarget target, long workDurationMs) {
+        FutureTask<Void> task = new FutureTask<>(() -> executeCriticalSection(target, workDurationMs));
+        Thread.ofVirtual().start(task);
+        return task;
     }
 
     public void close() {
@@ -44,14 +51,13 @@ public class DistributedProcess {
     public static void main(String[] args) throws Exception {
         String processId = args.length > 0 ? args[0] : "Process1";
         String rabbitmqHost = args.length > 1 ? args[1] : "localhost";
+        LockTarget target = args.length > 2 ? LockTarget.of(args[2]) : LockTarget.GLOBAL.sub("database").sub("resource1");
+        long workDurationMs = args.length > 3 ? Long.parseLong(args[3]) : WORK_DURATION;
 
-        // Dynamic, hierarchical target selection
-        LockTarget target = LockTarget.GLOBAL.sub("database").sub("table_users");
-
-        DistributedProcess process = new DistributedProcess(processId, rabbitmqHost);
+        var process = new DistributedProcess(processId, rabbitmqHost);
 
         try {
-            process.executeCriticalSection(target, WORK_DURATION);
+            process.executeCriticalSection(target, workDurationMs);
         } finally {
             process.close();
         }

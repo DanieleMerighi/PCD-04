@@ -48,7 +48,7 @@ public class RabbitMQLockManagerClient implements DistributedLockManager {
         listenerThread.setDaemon(true);
         listenerThread.start();
 
-        System.out.printf("[%s] Client initialized. Reply queue: %s%n", processId, replyQueueName);
+        System.out.printf("[%s] Client initialized. replyQueue=%s%n", processId, replyQueueName);
     }
 
     @Override
@@ -58,17 +58,23 @@ public class RabbitMQLockManagerClient implements DistributedLockManager {
             var messageBody = serialize(request);
 
             requestChannel.basicPublish(RabbitConfig.REQUEST_EXCHANGE, RabbitConfig.ROUTING_ACQUIRE, null, messageBody);
-            System.out.printf("[%s] Acquire requested for target: %s%n", processId, target);
+            System.out.printf("[%s] Waiting for GRANT target=%s timeout=%dms%n",
+                    processId, target, RabbitConfig.ACQUIRE_TIMEOUT_MS);
 
             var grant = grantQueue.poll(RabbitConfig.ACQUIRE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             if (grant == null) {
-                throw new InterruptedException("Timeout waiting for lock: " + target);
+                throw new InterruptedException("Timeout waiting for grant on target: " + target);
             }
             if (!grant.granted()) {
-                throw new InterruptedException("Lock denied for: " + target);
+                throw new InterruptedException("Lock denied for target: " + target);
             }
 
-            System.out.printf("[%s] Lock acquired for target: %s%n", processId, target);
+            if (!target.getPath().equals(grant.resourceId())) {
+                System.err.printf("[%s] Received grant for %s while waiting for %s%n",
+                        processId, grant.resourceId(), target);
+            }
+
+            System.out.printf("[%s] GRANT received for target=%s%n", processId, target);
 
         } catch (IOException e) {
             throw new InterruptedException(String.format("[%s] Error acquiring lock: %s", processId, e.getMessage()));
@@ -80,10 +86,7 @@ public class RabbitMQLockManagerClient implements DistributedLockManager {
         try {
             var request = new ReleaseRequest(target.getPath(), processId);
             var messageBody = serialize(request);
-
             requestChannel.basicPublish(RabbitConfig.REQUEST_EXCHANGE, RabbitConfig.ROUTING_RELEASE, null, messageBody);
-            System.out.printf("[%s] Release requested for target: %s%n", processId, target);
-
         } catch (IOException e) {
             System.err.printf("[%s] Error releasing lock: %s%n", processId, e.getMessage());
         }
