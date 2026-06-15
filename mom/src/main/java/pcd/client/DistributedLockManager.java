@@ -1,10 +1,12 @@
 package pcd.client;
 
+import pcd.util.LockTarget;
+
 public interface DistributedLockManager {
 
-    void acquire(String resourceId) throws InterruptedException;
+    void acquire(LockTarget target) throws InterruptedException;
 
-    void release(String resourceId);
+    void release(LockTarget target);
 
     void close();
 }

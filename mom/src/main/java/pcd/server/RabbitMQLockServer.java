@@ -4,22 +4,22 @@ import com.rabbitmq.client.*;
 import pcd.messages.AcquireRequest;
 import pcd.messages.GrantMessage;
 import pcd.messages.ReleaseRequest;
+import pcd.util.RabbitConfig;
 
 import java.io.*;
 import java.util.*;
 
-public class RabbitMQLockServer {
+import static pcd.util.Serialize.serialize;
+import static pcd.util.Serialize.deserialize;
 
-    private static final String REQUEST_EXCHANGE = "lock_requests_exchange";
-    private static final String REQUEST_QUEUE = "lock_requests_queue";
-    private static final String GRANT_EXCHANGE = "lock_grants_exchange";
+public class RabbitMQLockServer {
 
     private final Channel channel;
     private final Connection connection;
 
     private final Map<String, String> resourceOwners = new HashMap<>();
     private final Map<String, Queue<AcquireRequest>> waitingQueues = new HashMap<>();
-    
+
     private volatile boolean running = true;
 
     public RabbitMQLockServer(String rabbitmqHost) throws Exception {
@@ -28,41 +28,37 @@ public class RabbitMQLockServer {
         this.connection = factory.newConnection();
         this.channel = connection.createChannel();
 
-        // Dichiara gli exchange e le code
-        channel.exchangeDeclare(REQUEST_EXCHANGE, "direct", true);
-        channel.queueDeclare(REQUEST_QUEUE, true, false, false, null);
-        channel.queueBind(REQUEST_QUEUE, REQUEST_EXCHANGE, "acquire");
-        channel.queueBind(REQUEST_QUEUE, REQUEST_EXCHANGE, "release");
+        channel.exchangeDeclare(RabbitConfig.REQUEST_EXCHANGE, "direct", true);
+        channel.queueDeclare(RabbitConfig.REQUEST_QUEUE, true, false, false, null);
+        channel.queueBind(RabbitConfig.REQUEST_QUEUE, RabbitConfig.REQUEST_EXCHANGE, RabbitConfig.ROUTING_ACQUIRE);
+        channel.queueBind(RabbitConfig.REQUEST_QUEUE, RabbitConfig.REQUEST_EXCHANGE, RabbitConfig.ROUTING_RELEASE);
 
-        channel.exchangeDeclare(GRANT_EXCHANGE, "direct", true);
+        channel.exchangeDeclare(RabbitConfig.GRANT_EXCHANGE, "direct", true);
 
-        System.out.println("[Server] lock manager avviato");
+        System.out.println("[Server] Lock manager started.");
     }
 
     public void start() throws Exception {
-        System.out.println("[Server] in ascolto su: " + REQUEST_QUEUE);
+        System.out.println("[Server] Listening on: " + RabbitConfig.REQUEST_QUEUE);
 
         DeliverCallback deliverCallback = (consumerTag, delivery) -> {
             try {
                 byte[] body = delivery.getBody();
                 String routingKey = delivery.getEnvelope().getRoutingKey();
 
-                if ("acquire".equals(routingKey)) {
+                if (RabbitConfig.ROUTING_ACQUIRE.equals(routingKey)) {
                     handleAcquireRequest(body);
-                } else if ("release".equals(routingKey)) {
+                } else if (RabbitConfig.ROUTING_RELEASE.equals(routingKey)) {
                     handleReleaseRequest(body);
                 }
-
             } catch (Exception e) {
-                System.err.println("[Server] errore nel processing del messaggio: " + e.getMessage());
-                e.printStackTrace();
+                System.err.println("[Server] Message processing error: " + e.getMessage());
             }
         };
 
         boolean autoAck = true;
-        channel.basicConsume(REQUEST_QUEUE, autoAck, deliverCallback, consTag -> {});
+        channel.basicConsume(RabbitConfig.REQUEST_QUEUE, autoAck, deliverCallback, consTag -> {});
 
-        // Blocca il thread principale
         synchronized (this) {
             while (running) {
                 this.wait();
@@ -71,112 +67,77 @@ public class RabbitMQLockServer {
     }
 
     private void handleAcquireRequest(byte[] body) throws Exception {
-        ByteArrayInputStream bais = new ByteArrayInputStream(body);
-        ObjectInputStream ois = new ObjectInputStream(bais);
-        AcquireRequest request = (AcquireRequest) ois.readObject();
-        ois.close();
-
+        AcquireRequest request = (AcquireRequest) deserialize(body);
         String resourceId = request.getResourceId();
         String processId = request.getProcessId();
-        String replyQueue = request.getReplyQueueName();
 
-        System.out.println("[Server] Acquire: " + processId + " richiede " + resourceId);
+        System.out.printf("[Server] Acquire: %s requests %s%n", processId, resourceId);
 
         synchronized (this) {
             String owner = resourceOwners.get(resourceId);
 
             if (owner == null) {
-                // La risorsa è libera: assegna il lock subito
                 resourceOwners.put(resourceId, processId);
-                sendGrant(resourceId, processId, replyQueue, true);
-                System.out.println("[Server] Lock concesso a " + processId + " per " + resourceId);
-
+                sendGrant(resourceId, processId, true);
+                System.out.printf("[Server] Lock granted to %s for %s%n", processId, resourceId);
             } else {
-                // La risorsa è occupata: metti in coda
-                Queue<AcquireRequest> waitingQueue = waitingQueues.computeIfAbsent(
-                    resourceId, 
-                    k -> new LinkedList<>()
-                );
+                Queue<AcquireRequest> waitingQueue = waitingQueues.computeIfAbsent(resourceId, k -> new LinkedList<>());
                 waitingQueue.offer(request);
-                System.out.println("[Server] " + processId + " in attesa per " + resourceId +
-                                 " (coda: " + waitingQueue.size() + ")");
+                System.out.printf("[Server] %s enqueued for %s (Queue depth: %d)%n", processId, resourceId, waitingQueue.size());
             }
         }
     }
 
     private void handleReleaseRequest(byte[] body) throws Exception {
-        ByteArrayInputStream bais = new ByteArrayInputStream(body);
-        ObjectInputStream ois = new ObjectInputStream(bais);
-        ReleaseRequest request = (ReleaseRequest) ois.readObject();
-        ois.close();
-
+        ReleaseRequest request = (ReleaseRequest) deserialize(body);
         String resourceId = request.getResourceId();
         String processId = request.getProcessId();
 
-        System.out.println("[Server] Release: " + processId + " rilascia " + resourceId);
+        System.out.printf("[Server] Release: %s releases %s%n", processId, resourceId);
 
         synchronized (this) {
             String owner = resourceOwners.get(resourceId);
 
-            if (owner != null && owner.equals(processId)) {
+            if (processId.equals(owner)) {
                 resourceOwners.remove(resourceId);
-                System.out.println("[Server] Lock rilasciato da " + processId + " per " + resourceId);
+                System.out.printf("[Server] Lock released by %s for %s%n", processId, resourceId);
 
-                // Controlla se c'è qualcuno in attesa
                 Queue<AcquireRequest> waitingQueue = waitingQueues.get(resourceId);
                 if (waitingQueue != null && !waitingQueue.isEmpty()) {
                     AcquireRequest nextRequest = waitingQueue.poll();
                     resourceOwners.put(resourceId, nextRequest.getProcessId());
-                    sendGrant(resourceId, nextRequest.getProcessId(), 
-                             nextRequest.getReplyQueueName(), true);
-                    System.out.println("[Server] Lock concesso a " + nextRequest.getProcessId() +
-                                     " per " + resourceId);
+                    sendGrant(resourceId, nextRequest.getProcessId(), true);
+                    System.out.printf("[Server] Lock granted to next in queue %s for %s%n", nextRequest.getProcessId(), resourceId);
 
                     if (waitingQueue.isEmpty()) {
                         waitingQueues.remove(resourceId);
                     }
                 }
-
             } else {
-                System.err.println("[Server] Errore: " + processId + " non possiede " + resourceId);
+                System.err.printf("[Server] Error: %s does not own %s%n", processId, resourceId);
             }
         }
     }
 
-    private void sendGrant(String resourceId, String processId, String replyQueue, 
-                          boolean granted) throws IOException {
-        GrantMessage grant = new GrantMessage(resourceId, processId, granted, 
-                                             granted ? "Lock concesso" : "Lock negato");
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(baos);
-        oos.writeObject(grant);
-        oos.close();
-        byte[] messageBody = baos.toByteArray();
-
-        channel.basicPublish(GRANT_EXCHANGE, processId, null, messageBody);
+    private void sendGrant(String resourceId, String processId, boolean granted) throws IOException {
+        GrantMessage grant = new GrantMessage(resourceId, processId, granted, granted ? "Lock Granted" : "Lock Denied");
+        channel.basicPublish(RabbitConfig.GRANT_EXCHANGE, processId, null, serialize(grant));
     }
 
     public void stop() {
         running = false;
-        synchronized (this) {
-            this.notify();
-        }
+        synchronized (this) { this.notify(); }
         try {
             channel.close();
             connection.close();
-            System.out.println("[Server] Server chiuso.");
+            System.out.println("[Server] Server closed.");
         } catch (Exception e) {
-            System.err.println("[Server] Errore nella chiusura del server: " + e.getMessage());
+            System.err.println("[Server] Error during closure: " + e.getMessage());
         }
     }
 
     public static void main(String[] args) throws Exception {
-        String rabbitmqHost = "localhost";
-        if (args.length > 0) {
-            rabbitmqHost = args[0];
-        }
-
+        String rabbitmqHost = args.length > 0 ? args[0] : "localhost";
         RabbitMQLockServer server = new RabbitMQLockServer(rabbitmqHost);
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop));
         server.start();

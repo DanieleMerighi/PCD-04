@@ -1,6 +1,7 @@
 package pcd;
 
 import pcd.client.RabbitMQLockManagerClient;
+import pcd.util.LockTarget;
 
 public class DistributedProcess {
 
@@ -13,26 +14,27 @@ public class DistributedProcess {
         this.lockManager = new RabbitMQLockManagerClient(processId, rabbitmqHost);
     }
 
-    public void executeCriticalSection(String resourceId, long workDurationMs) throws InterruptedException {
-        System.out.println("\n[" + processId + "]" + " tenta di acquisire " + resourceId);
+    public void executeCriticalSection(LockTarget target, long workDurationMs) throws InterruptedException {
+        System.out.printf("%n[%s] Attempting to acquire: %s%n", processId, target);
+
         try {
-            lockManager.acquire(resourceId);
+            lockManager.acquire(target);
         } catch (InterruptedException e) {
-            System.out.println("[" + processId + "]" + " timeout nell'acquisizione del lock per la risorsa " + resourceId);
+            System.err.printf("[%s] Timeout acquiring lock for: %s%n", processId, target);
             throw e;
         }
-        System.out.println("[" + processId + "]" + " - SEZIONE CRITICA INIZIATA per " + resourceId);
 
-        try { // Simula il lavoro critico
+        System.out.printf("[%s] CRITICAL SECTION STARTED for: %s%n", processId, target);
+
+        try {
             Thread.sleep(workDurationMs);
         } catch (InterruptedException e) {
-            System.err.println("[" + processId + "]" + " interrotto durante il lavoro critico");
+            System.err.printf("[%s] Interrupted during critical work.%n", processId);
             throw e;
         }
-        
-        System.out.println("[" + processId + "]" + " - SEZIONE CRITICA TERMINATA per " + resourceId);
-        lockManager.release(resourceId);
-        System.out.println("[" + processId + "]" + " rilasciato " + resourceId);
+
+        System.out.printf("[%s] CRITICAL SECTION ENDED for: %s%n", processId, target);
+        lockManager.release(target);
     }
 
     public void close() {
@@ -41,13 +43,15 @@ public class DistributedProcess {
 
     public static void main(String[] args) throws Exception {
         String processId = args.length > 0 ? args[0] : "Process1";
-        String resourceId = args.length > 1 ? args[1] : "resource_1";
-        String rabbitmqHost = args.length > 2 ? args[2] : "localhost";
+        String rabbitmqHost = args.length > 1 ? args[1] : "localhost";
+
+        // Dynamic, hierarchical target selection
+        LockTarget target = LockTarget.GLOBAL.sub("database").sub("table_users");
 
         DistributedProcess process = new DistributedProcess(processId, rabbitmqHost);
 
         try {
-            process.executeCriticalSection(resourceId, WORK_DURATION);
+            process.executeCriticalSection(target, WORK_DURATION);
         } finally {
             process.close();
         }
