@@ -7,7 +7,7 @@ import java.io.Serializable;
  * Messaggio di richiesta di acquire per una sezione critica.
  * Un processo invia questo messaggio al middleware per richiedere l'accesso a una risorsa.
  */
-public record AcquireRequest(String resourceId, String processId, String replyQueueName) implements Serializable {
+public record AcquireRequest(String resourceId, String processId) implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
@@ -16,7 +16,6 @@ public record AcquireRequest(String resourceId, String processId, String replyQu
         return "AcquireRequest{" +
                 "resourceId='" + resourceId + '\'' +
                 ", processId='" + processId + '\'' +
-                ", replyQueueName='" + replyQueueName + '\'' +
                 '}';
     }
 }

@@ -18,11 +18,13 @@ import static pcd.util.Serialize.deserialize;
 
 public class RabbitMQLockServer {
 
+    private record QueuedRequest(AcquireRequest request, AMQP.BasicProperties props) {}
+
     private final Channel channel;
     private final Connection connection;
 
     private final Map<String, String> resourceOwners = new HashMap<>();
-    private final Deque<AcquireRequest> waitingRequests = new LinkedList<>();
+    private final Deque<QueuedRequest> waitingRequests = new LinkedList<>();
 
     private volatile boolean running = true;
 
@@ -37,8 +39,6 @@ public class RabbitMQLockServer {
         channel.queueBind(RabbitConfig.REQUEST_QUEUE, RabbitConfig.REQUEST_EXCHANGE, RabbitConfig.ROUTING_ACQUIRE);
         channel.queueBind(RabbitConfig.REQUEST_QUEUE, RabbitConfig.REQUEST_EXCHANGE, RabbitConfig.ROUTING_RELEASE);
 
-        channel.exchangeDeclare(RabbitConfig.GRANT_EXCHANGE, "direct", true);
-
         System.out.println("[Server] Lock manager started.");
     }
 
@@ -50,9 +50,10 @@ public class RabbitMQLockServer {
             try {
                 var body = delivery.getBody();
                 var routingKey = delivery.getEnvelope().getRoutingKey();
+                var props = delivery.getProperties(); // Estraiamo le properties
 
                 if (RabbitConfig.ROUTING_ACQUIRE.equals(routingKey)) {
-                    handleAcquireRequest(body);
+                    handleAcquireRequest(body, props); // Passiamo anche le properties
                 } else if (RabbitConfig.ROUTING_RELEASE.equals(routingKey)) {
                     handleReleaseRequest(body);
                 }
@@ -86,7 +87,7 @@ public class RabbitMQLockServer {
     }
 
 
-    private void handleAcquireRequest(byte[] body) throws Exception {
+    private void handleAcquireRequest(byte[] body, AMQP.BasicProperties props) throws Exception {
         AcquireRequest request = (AcquireRequest) deserialize(body);
         String resourceId = request.resourceId();
         String processId = request.processId();
@@ -96,14 +97,14 @@ public class RabbitMQLockServer {
         synchronized (this) {
             String blockingOwner = findBlockingOwner(resourceId);
 
-            if (blockingOwner == null && waitingRequests.isEmpty()) { // Necessary to prevent starvation, even if a process could go it will wait if the queue is not empty
+            if (blockingOwner == null && waitingRequests.isEmpty()) {
                 resourceOwners.put(resourceId, processId);
-                sendGrant(resourceId, processId);
+                sendGrant(props, resourceId, processId);
                 System.out.printf("[Server] GRANTED: process=%s resource=%s%n", processId, resourceId);
             } else {
-                waitingRequests.addLast(request);
+                waitingRequests.addLast(new QueuedRequest(request, props));
                 System.out.printf("[Server] QUEUED: process=%s resource=%s blockedBy=%s queueDepth=%d%n",
-                        processId, resourceId, blockingOwner == null ? "earlier waiting request" : blockingOwner, waitingRequests.size());
+                        processId, resourceId, blockingOwner == null ? "earlier request" : blockingOwner, waitingRequests.size());
             }
         }
     }
@@ -131,19 +132,20 @@ public class RabbitMQLockServer {
 
     private void grantWaitingRequests() throws IOException {
         while (true) {
-            AcquireRequest nextRequest = waitingRequests.peekFirst();
+            QueuedRequest next = waitingRequests.peekFirst();
 
-            if (nextRequest == null) {
+            if (next == null) {
                 return;
             }
 
+            AcquireRequest nextRequest = next.request();
             if (findBlockingOwner(nextRequest.resourceId()) != null) {
                 return;
             }
 
             waitingRequests.removeFirst();
             resourceOwners.put(nextRequest.resourceId(), nextRequest.processId());
-            sendGrant(nextRequest.resourceId(), nextRequest.processId());
+            sendGrant(next.props(), nextRequest.resourceId(), nextRequest.processId());
             System.out.printf("[Server] GRANTED FROM QUEUE: process=%s resource=%s remaining=%d%n",
                     nextRequest.processId(), nextRequest.resourceId(), waitingRequests.size());
         }
@@ -160,9 +162,14 @@ public class RabbitMQLockServer {
         return null;
     }
 
-    private void sendGrant(String resourceId, String processId) throws IOException {
+    private void sendGrant(AMQP.BasicProperties requestProps, String resourceId, String processId) throws IOException {
         GrantMessage grant = new GrantMessage(resourceId, processId, true, "Lock Granted");
-        channel.basicPublish(RabbitConfig.GRANT_EXCHANGE, processId, null, serialize(grant));
+
+        AMQP.BasicProperties replyProps = new AMQP.BasicProperties.Builder()
+                .correlationId(requestProps.getCorrelationId())
+                .build();
+
+        channel.basicPublish("", requestProps.getReplyTo(), replyProps, serialize(grant));
     }
 
     public static void main(String[] args) throws Exception {
