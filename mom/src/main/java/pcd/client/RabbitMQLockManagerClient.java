@@ -64,7 +64,7 @@ public class RabbitMQLockManagerClient implements DistributedLockManager {
             if (grant == null) {
                 throw new InterruptedException("Timeout waiting for lock: " + target);
             }
-            if (!grant.isGranted()) {
+            if (!grant.granted()) {
                 throw new InterruptedException("Lock denied for: " + target);
             }
 

@@ -1,29 +1,15 @@
 package pcd.messages;
 
+import java.io.Serial;
 import java.io.Serializable;
 
 /**
  * Messaggio di rilascio di una sezione critica.
  * Un processo invia questo messaggio al middleware per notificare il rilascio di una risorsa.
  */
-public class ReleaseRequest implements Serializable {
+public record ReleaseRequest(String resourceId, String processId) implements Serializable {
+    @Serial
     private static final long serialVersionUID = 1L;
-
-    private final String resourceId;
-    private final String processId;
-
-    public ReleaseRequest(String resourceId, String processId) {
-        this.resourceId = resourceId;
-        this.processId = processId;
-    }
-
-    public String getResourceId() {
-        return resourceId;
-    }
-
-    public String getProcessId() {
-        return processId;
-    }
 
     @Override
     public String toString() {

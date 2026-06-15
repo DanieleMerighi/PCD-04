@@ -68,8 +68,8 @@ public class RabbitMQLockServer {
 
     private void handleAcquireRequest(byte[] body) throws Exception {
         AcquireRequest request = (AcquireRequest) deserialize(body);
-        String resourceId = request.getResourceId();
-        String processId = request.getProcessId();
+        String resourceId = request.resourceId();
+        String processId = request.processId();
 
         System.out.printf("[Server] Acquire: %s requests %s%n", processId, resourceId);
 
@@ -90,8 +90,8 @@ public class RabbitMQLockServer {
 
     private void handleReleaseRequest(byte[] body) throws Exception {
         ReleaseRequest request = (ReleaseRequest) deserialize(body);
-        String resourceId = request.getResourceId();
-        String processId = request.getProcessId();
+        String resourceId = request.resourceId();
+        String processId = request.processId();
 
         System.out.printf("[Server] Release: %s releases %s%n", processId, resourceId);
 
@@ -105,9 +105,9 @@ public class RabbitMQLockServer {
                 Queue<AcquireRequest> waitingQueue = waitingQueues.get(resourceId);
                 if (waitingQueue != null && !waitingQueue.isEmpty()) {
                     AcquireRequest nextRequest = waitingQueue.poll();
-                    resourceOwners.put(resourceId, nextRequest.getProcessId());
-                    sendGrant(resourceId, nextRequest.getProcessId(), true);
-                    System.out.printf("[Server] Lock granted to next in queue %s for %s%n", nextRequest.getProcessId(), resourceId);
+                    resourceOwners.put(resourceId, nextRequest.processId());
+                    sendGrant(resourceId, nextRequest.processId(), true);
+                    System.out.printf("[Server] Lock granted to next in queue %s for %s%n", nextRequest.processId(), resourceId);
 
                     if (waitingQueue.isEmpty()) {
                         waitingQueues.remove(resourceId);
