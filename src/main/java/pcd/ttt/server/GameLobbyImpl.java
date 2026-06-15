@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 public class GameLobbyImpl implements GameLobby {
 
@@ -30,13 +31,15 @@ public class GameLobbyImpl implements GameLobby {
 
     private final Map<String, Session> games = new HashMap<>();
     private final ExecutorService cleanup = Executors.newSingleThreadExecutor();
+    private final ScheduledExecutorService monitor = Executors.newScheduledThreadPool(2);
 
     @Override
     public synchronized Game createGame(String name, GameObserver observer) throws RemoteException, GameException {
+        requireValidName(name);
         if (games.containsKey(name)) {
             throw new GameException("A game already exists with name: " + name);
         }
-        GameImpl impl = new GameImpl(name, observer, () -> terminate(name));
+        GameImpl impl = new GameImpl(name, observer, () -> terminate(name), monitor);
         PlayerProxy proxyX = new PlayerProxy(impl, Mark.X);
         Game stub = (Game) UnicastRemoteObject.exportObject(proxyX, 0);
         games.put(name, new Session(impl, proxyX));
@@ -46,6 +49,7 @@ public class GameLobbyImpl implements GameLobby {
 
     @Override
     public Game joinGame(String name, GameObserver observer) throws RemoteException, GameException {
+        requireValidName(name);
         Session session;
         synchronized (this) {
             session = games.get(name);
@@ -69,6 +73,12 @@ public class GameLobbyImpl implements GameLobby {
     @Override
     public synchronized List<String> listGames() throws RemoteException {
         return games.keySet().stream().sorted().toList();
+    }
+
+    private static void requireValidName(String name) throws GameException {
+        if (name == null || name.isBlank()) {
+            throw new GameException("Game name must not be empty");
+        }
     }
 
     private void terminate(String name) {

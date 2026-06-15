@@ -27,6 +27,8 @@ public class PlayerApp {
     private GameSnapshot latest;
 
     static void main(String[] args) {
+        System.setProperty("sun.rmi.transport.tcp.responseTimeout", "5000");
+
         String host = args.length > 0 ? args[0] : null;
         new PlayerApp().run(host);
     }
@@ -41,9 +43,10 @@ public class PlayerApp {
             return;
         }
 
+        GameObserver observer;
         GameObserver observerStub;
         try {
-            GameObserver observer = new GameObserverImpl(this::onUpdate);
+            observer = new GameObserverImpl(this::onUpdate);
             observerStub = (GameObserver) UnicastRemoteObject.exportObject(observer, 0);
         } catch (RemoteException e) {
             System.out.println("Could not initialise the client.");
@@ -58,8 +61,18 @@ public class PlayerApp {
             System.out.println("Connection to the server lost. The game cannot continue.");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        } finally {
+            shutdown(observer);
         }
         System.exit(0);
+    }
+
+    private void shutdown(GameObserver observer) {
+        inputReader.shutdownNow();
+        try {
+            UnicastRemoteObject.unexportObject(observer, true);
+        } catch (RemoteException ignored) {
+        }
     }
 
     private Game chooseGame(GameLobby lobby, GameObserver observerStub) {

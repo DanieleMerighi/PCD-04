@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 class GameImpl {
@@ -26,7 +27,8 @@ class GameImpl {
 
     private final String name;
     private final Runnable onTerminated;
-    private final ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService monitor;
+    private ScheduledFuture<?> monitorTask;
 
     private final Player playerX;
 
@@ -35,9 +37,10 @@ class GameImpl {
     private GameStatus status;
     private Player playerO;
 
-    GameImpl(String name, GameObserver creator, Runnable onTerminated) {
+    GameImpl(String name, GameObserver creator, Runnable onTerminated, ScheduledExecutorService monitor) {
         this.name = name;
         this.onTerminated = onTerminated;
+        this.monitor = monitor;
         this.board = new Board();
         this.turn = Mark.X;
         this.status = GameStatus.WAITING_FOR_OPPONENT;
@@ -45,7 +48,7 @@ class GameImpl {
     }
 
     void beginMonitoring() {
-        monitor.scheduleWithFixedDelay(this::checkAlive,
+        monitorTask = monitor.scheduleWithFixedDelay(this::checkAlive,
                 HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
     }
 
@@ -163,10 +166,16 @@ class GameImpl {
     }
 
     private void finish() {
-        monitor.shutdown();
+        Player o;
+        synchronized (this) {
+            o = playerO;
+        }
+        if (monitorTask != null) {
+            monitorTask.cancel(false);
+        }
         playerX.notifier.shutdown();
-        if (playerO != null) {
-            playerO.notifier.shutdown();
+        if (o != null) {
+            o.notifier.shutdown();
         }
         onTerminated.run();
     }
