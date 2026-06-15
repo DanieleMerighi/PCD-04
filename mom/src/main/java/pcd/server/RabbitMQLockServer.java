@@ -78,7 +78,7 @@ public class RabbitMQLockServer {
 
             if (owner == null) {
                 resourceOwners.put(resourceId, processId);
-                sendGrant(resourceId, processId, true);
+                sendGrant(resourceId, processId);
                 System.out.printf("[Server] Lock granted to %s for %s%n", processId, resourceId);
             } else {
                 Queue<AcquireRequest> waitingQueue = waitingQueues.computeIfAbsent(resourceId, k -> new LinkedList<>());
@@ -106,7 +106,7 @@ public class RabbitMQLockServer {
                 if (waitingQueue != null && !waitingQueue.isEmpty()) {
                     AcquireRequest nextRequest = waitingQueue.poll();
                     resourceOwners.put(resourceId, nextRequest.processId());
-                    sendGrant(resourceId, nextRequest.processId(), true);
+                    sendGrant(resourceId, nextRequest.processId());
                     System.out.printf("[Server] Lock granted to next in queue %s for %s%n", nextRequest.processId(), resourceId);
 
                     if (waitingQueue.isEmpty()) {
@@ -119,8 +119,8 @@ public class RabbitMQLockServer {
         }
     }
 
-    private void sendGrant(String resourceId, String processId, boolean granted) throws IOException {
-        GrantMessage grant = new GrantMessage(resourceId, processId, granted, granted ? "Lock Granted" : "Lock Denied");
+    private void sendGrant(String resourceId, String processId) throws IOException {
+        GrantMessage grant = new GrantMessage(resourceId, processId, true, "Lock Granted");
         channel.basicPublish(RabbitConfig.GRANT_EXCHANGE, processId, null, serialize(grant));
     }
 
