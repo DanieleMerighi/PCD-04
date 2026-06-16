@@ -48,12 +48,12 @@ public class RabbitMQLockServer {
         channel.basicQos(1);
         DeliverCallback deliverCallback = (consumerTag, delivery) -> {
             try {
+                var props = delivery.getProperties();
                 var body = delivery.getBody();
                 var routingKey = delivery.getEnvelope().getRoutingKey();
-                var props = delivery.getProperties(); // Estraiamo le properties
 
                 if (RabbitConfig.ROUTING_ACQUIRE.equals(routingKey)) {
-                    handleAcquireRequest(body, props); // Passiamo anche le properties
+                    handleAcquireRequest(body, props);
                 } else if (RabbitConfig.ROUTING_RELEASE.equals(routingKey)) {
                     handleReleaseRequest(body);
                 }
