@@ -20,17 +20,12 @@ public class FairParallelismTest {
             LockTarget targetA = LockTarget.GLOBAL.sub("db").sub("tableA");
             LockTarget targetB = LockTarget.GLOBAL.sub("db").sub("tableB");
 
-            // 1. Proc-1 acquisisce targetA per 6 secondi
             var task1 = proc1.executeAsync(targetA, 6000);
-            Thread.sleep(500); // Attesa per garantire l'ordine di ricezione sul server
+            Thread.sleep(500);
 
-            // 2. Proc-2 richiede targetA. Viene accodato (conflitto con Proc-1).
             var task2 = proc2.executeAsync(targetA, 2000);
             Thread.sleep(500);
 
-            // 3. Proc-3 richiede targetB.
-            // Logica precedente: bloccato a causa della coda non vuota.
-            // Nuova logica: acquisito immediatamente (nessun conflitto con targetA).
             var task3 = proc3.executeAsync(targetB, 2000);
 
             task1.get();
