@@ -106,12 +106,14 @@ public class RabbitMQLockServer {
         System.out.printf("[Server] ACQUIRE received: process=%s resource=%s%n", processId, resourceId);
 
         var blockingOwner = findBlockingOwner(resourceId);
-        if (blockingOwner == null && waitingRequests.isEmpty()) {
+        var conflictsWithQueue = conflictsWithAnyQueuedRequest(resourceId);
+        if (blockingOwner == null && !conflictsWithQueue) {
             grantLock(resourceId, processId, props);
         } else {
             waitingRequests.addLast(new QueuedRequest(request, props));
-            System.out.printf("[Server] QUEUED: process=%s resource=%s blockedBy=%s queueDepth=%d%n",
-                    processId, resourceId, blockingOwner == null ? "earlier request" : blockingOwner, waitingRequests.size());
+            var reason = blockingOwner != null ? "owner " + blockingOwner : "prior queued request";
+            System.out.printf("[Server] QUEUED: process=%s resource=%s blockedBy=[%s] queueDepth=%d%n",
+                    processId, resourceId, reason, waitingRequests.size());
         }
     }
 
@@ -148,16 +150,37 @@ public class RabbitMQLockServer {
     }
 
     private void grantWaitingRequests() throws IOException {
-        while (true) {
-            var next = waitingRequests.peekFirst();
-            if (next == null) return;
+        var iterator = waitingRequests.iterator();
+        var skippedTargets = new java.util.ArrayList<String>();
+        while (iterator.hasNext()) {
+            var next = iterator.next();
+            var target = next.request().resourceId();
+            var blockedByOwner = findBlockingOwner(target) != null;
+            var blockedByEarlierQueue = conflictsWithAny(target, skippedTargets);
 
-            var nextRequest = next.request();
-            if (findBlockingOwner(nextRequest.resourceId()) != null) return;
-
-            waitingRequests.removeFirst();
-            grantLock(nextRequest.resourceId(), nextRequest.processId(), next.props());
+            if (blockedByOwner || blockedByEarlierQueue) {
+                skippedTargets.add(target);
+            } else {
+                iterator.remove();
+                grantLock(target, next.request().processId(), next.props());
+            }
         }
+    }
+
+    private boolean conflictsWithAnyQueuedRequest(String target) {
+        for (var queued : waitingRequests) {
+            if (LockTarget.conflicts(target, queued.request().resourceId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean conflictsWithAny(String target, Iterable<String> others) {
+        for (var other : others) {
+            if (LockTarget.conflicts(target, other)) return true;
+        }
+        return false;
     }
 
     private String findBlockingOwner(String resourceId) {
