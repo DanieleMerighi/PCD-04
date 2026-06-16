@@ -4,8 +4,13 @@ import java.io.Serial;
 import java.io.Serializable;
 
 /**
- * Messaggio di rilascio di una sezione critica.
- * Un processo invia questo messaggio al middleware per notificare il rilascio di una risorsa.
+ * Represents a request message to release a previously acquired lock.
+ * <p>
+ * A distributed process sends this message to the central middleware (lock server)
+ * to notify that it has finished its critical section and the resource can be freed.
+ *
+ * @param resourceId the hierarchical identifier of the resource to be released
+ * @param processId  the unique identifier of the process releasing the lock
  */
 public record ReleaseRequest(String resourceId, String processId) implements Serializable {
     @Serial

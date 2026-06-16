@@ -4,8 +4,13 @@ import java.io.Serial;
 import java.io.Serializable;
 
 /**
- * Messaggio di richiesta di acquire per una sezione critica.
- * Un processo invia questo messaggio al middleware per richiedere l'accesso a una risorsa.
+ * Represents a request message to acquire a lock for a critical section.
+ * <p>
+ * A distributed process sends this message to the central middleware (lock server)
+ * to request exclusive access to a specific resource.
+ *
+ * @param resourceId the hierarchical identifier of the requested resource
+ * @param processId  the unique identifier of the process requesting the lock
  */
 public record AcquireRequest(String resourceId, String processId) implements Serializable {
     @Serial

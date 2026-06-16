@@ -5,6 +5,9 @@ import pcd.util.LockTarget;
 import java.util.List;
 import java.util.concurrent.FutureTask;
 
+/*
+ * Test class to simulate concurrent lock usage
+ */
 public class ConcurrentLockDemo {
 
     public static void main(String[] args) throws Exception {

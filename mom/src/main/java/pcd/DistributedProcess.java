@@ -1,15 +1,19 @@
 package pcd;
 
+import pcd.client.DistributedLockManager;
 import pcd.client.RabbitMQLockManagerClient;
 import pcd.util.LockTarget;
 
 import java.util.concurrent.FutureTask;
 
+/*
+ * Test class to simulate lock usage
+ */
 public class DistributedProcess {
 
-    public static final int WORK_DURATION = 5000;
+    public static final int WORK_DURATION = 2000;
     private final String processId;
-    private final RabbitMQLockManagerClient lockManager;
+    private final DistributedLockManager lockManager;
 
     public DistributedProcess(String processId, String rabbitmqHost) throws Exception {
         this.processId = processId;
@@ -26,6 +30,9 @@ public class DistributedProcess {
             Thread.sleep(workDurationMs);
             System.out.printf("[%s] EXIT critical section for %s%n", processId, target);
             return null;
+        } catch (InterruptedException e) {
+            System.out.printf("[%s] Interrupted while waiting for lock for %s%n", processId, target);
+            throw e;
         } finally {
             if (acquired) {
                 System.out.printf("[%s] Releasing lock for %s%n", processId, target);

@@ -94,10 +94,22 @@ public class RabbitMQLockManagerClient implements DistributedLockManager {
         }
     }
 
+    @Override
+    public void close() {
+        try {
+            replyChannel.close();
+            requestChannel.close();
+            connection.close();
+            System.out.printf("[%s] Client closed.%n", processId);
+        } catch (Exception e) {
+            System.err.printf("[%s] Closure error: %s%n", processId, e.getMessage());
+        }
+    }
+
     private void listenForGrants() {
         try {
             DeliverCallback deliverCallback = (consumerTag, delivery) -> {
-                String correlationId = delivery.getProperties().getCorrelationId();
+                var correlationId = delivery.getProperties().getCorrelationId();
                 if (correlationId != null && correlationId.equals(expectedCorrelationId)) {
                     try {
                         var grant = (GrantMessage) deserialize(delivery.getBody());
@@ -113,18 +125,6 @@ public class RabbitMQLockManagerClient implements DistributedLockManager {
             replyChannel.basicConsume(replyQueueName, true, deliverCallback, consTag -> {});
         } catch (IOException e) {
             System.err.printf("[%s] Grant listener error: %s%n", processId, e.getMessage());
-        }
-    }
-
-    @Override
-    public void close() {
-        try {
-            replyChannel.close();
-            requestChannel.close();
-            connection.close();
-            System.out.printf("[%s] Client closed.%n", processId);
-        } catch (Exception e) {
-            System.err.printf("[%s] Closure error: %s%n", processId, e.getMessage());
         }
     }
 }
