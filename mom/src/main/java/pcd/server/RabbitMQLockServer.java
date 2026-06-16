@@ -26,6 +26,8 @@ public class RabbitMQLockServer {
     private record LockState(String processId, long expirationTimeMs) {}
 
     private static final long LEASE_DURATION_MS = 15000;
+    private static final int INITIAL_DELAY = 5;
+    private static final int PERIOD = 5;
 
     private final Channel channel;
     private final Connection connection;
@@ -46,7 +48,6 @@ public class RabbitMQLockServer {
         channel.queueDeclare(RabbitConfig.REQUEST_QUEUE, true, false, false, null);
         channel.queueBind(RabbitConfig.REQUEST_QUEUE, RabbitConfig.REQUEST_EXCHANGE, RabbitConfig.ROUTING_ACQUIRE);
         channel.queueBind(RabbitConfig.REQUEST_QUEUE, RabbitConfig.REQUEST_EXCHANGE, RabbitConfig.ROUTING_RELEASE);
-
         System.out.println("[Server] Lock manager started.");
     }
 
@@ -68,7 +69,7 @@ public class RabbitMQLockServer {
         };
         var autoAck = false;
         channel.basicConsume(RabbitConfig.REQUEST_QUEUE, autoAck, deliverCallback, consTag -> {});
-        timer.scheduleAtFixedRate(() -> processor.submit(this::evictExpiredLocks), 5, 5, TimeUnit.SECONDS);
+        timer.scheduleAtFixedRate(() -> processor.submit(this::evictExpiredLocks), INITIAL_DELAY, PERIOD, TimeUnit.SECONDS);
     }
 
     public void stop() {
@@ -172,7 +173,6 @@ public class RabbitMQLockServer {
     private void evictExpiredLocks() {
         var now = System.currentTimeMillis();
         var evicted = false;
-
         var iterator = resourceOwners.entrySet().iterator();
         while (iterator.hasNext()) {
             var entry = iterator.next();

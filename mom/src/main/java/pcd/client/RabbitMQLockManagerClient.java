@@ -43,7 +43,6 @@ public class RabbitMQLockManagerClient implements DistributedLockManager {
 
         this.replyQueueName = "reply_" + processId;
         replyChannel.queueDeclare(replyQueueName, false, true, true, null);
-
         replyChannel.basicConsume(replyQueueName, true, this::handleGrantDelivery, consTag -> {});
 
         System.out.printf("[%s] Client initialized. replyQueue=%s%n", processId, replyQueueName);
@@ -54,7 +53,6 @@ public class RabbitMQLockManagerClient implements DistributedLockManager {
         var correlationId = UUID.randomUUID().toString();
         var future = new CompletableFuture<GrantMessage>();
         pendingRequests.put(correlationId, future);
-
         try {
             var request = new AcquireRequest(target.getPath(), processId);
             var props = new AMQP.BasicProperties.Builder()
@@ -66,12 +64,10 @@ public class RabbitMQLockManagerClient implements DistributedLockManager {
             System.out.printf("[%s] Waiting for GRANT target=%s timeout=%dms%n", processId, target, RabbitConfig.ACQUIRE_TIMEOUT_MS);
 
             var grant = future.get(RabbitConfig.ACQUIRE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-
             if (!grant.granted()) {
                 throw new InterruptedException("Lock denied for target: " + target);
             }
             System.out.printf("[%s] GRANT received for target=%s%n", processId, target);
-
         } catch (TimeoutException e) {
             pendingRequests.remove(correlationId);
             throw new InterruptedException("Timeout waiting for grant on target: " + target);
