@@ -34,7 +34,7 @@ public class RabbitMQLockServer {
         this.connection = factory.newConnection();
         this.channel = connection.createChannel();
 
-        channel.exchangeDeclare(RabbitConfig.REQUEST_EXCHANGE, "direct", true);
+        channel.exchangeDeclare(RabbitConfig.REQUEST_EXCHANGE, BuiltinExchangeType.DIRECT, true);
         channel.queueDeclare(RabbitConfig.REQUEST_QUEUE, true, false, false, null);
         channel.queueBind(RabbitConfig.REQUEST_QUEUE, RabbitConfig.REQUEST_EXCHANGE, RabbitConfig.ROUTING_ACQUIRE);
         channel.queueBind(RabbitConfig.REQUEST_QUEUE, RabbitConfig.REQUEST_EXCHANGE, RabbitConfig.ROUTING_RELEASE);
