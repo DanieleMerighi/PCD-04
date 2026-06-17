@@ -1,8 +1,11 @@
 package pcd.distributedSmartHomeAlarmSystem
 
+import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.pekko.actor.typed.ActorSystem
+import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import org.apache.pekko.cluster.sharding.typed.scaladsl.ClusterSharding
 import pcd.distributedSmartHomeAlarmSystem.Sensor.Type.*
-import pcd.distributedSmartHomeAlarmSystem.actors.Home
+import pcd.distributedSmartHomeAlarmSystem.actors.{Home, SensorActor}
 
 
 object DistributedSmartHomeAlarmSystemApp:
@@ -52,12 +55,62 @@ object DistributedSmartHomeAlarmSystemApp:
       shedDoor)
 
     val allSensors = perimeter ++ livingArea ++ sleepingArea
-    val home = ActorSystem(Home(allSensors), "Home")
 
-    val pinCode = 1234
-    home ! Home.InstallAlarmSystem(pinCode)
+    val rootBehavior = Behaviors.setup: context =>
+      val sharding = ClusterSharding(context.system)
+      sharding.init(Home.init(allSensors))
+      sharding.init(SensorActor.init)
+      val home = sharding.entityRefFor(Home.Key, Home.Id)
 
-    // Example scenario
-    // TODO
-    home.terminate()
+      val pinCode = 1234
+      home ! Home.InstallAlarmSystem(pinCode)
+
+      // Example scenario
+
+      home ! Home.ToggleAlarmSystem(pinCode)
+      Thread.sleep(5000)
+
+      home ! Home.InteractWithSensor(loungeMotion) // homeowner roaming around
+      home ! Home.InteractWithSensor(hallwayMotion)
+
+      Thread.sleep(5000)
+
+      home ! Home.ToggleAlarmSystem(pinCode)
+      Thread.sleep(1000)
+      home ! Home.InteractWithSensor(frontDoor) // on the way out
+      home ! Home.InteractWithSensor(frontYardMotion)
+
+      Thread.sleep(5000)
+
+      home ! Home.InteractWithSensor(frontYardMotion) // on the way in
+      home ! Home.InteractWithSensor(frontDoor)
+      Thread.sleep(1000)
+      home ! Home.ToggleAlarmSystem(pinCode)
+
+      Thread.sleep(5000)
+
+      home ! Home.InteractWithSensor(kitchenMotion) // roaming around
+
+      Thread.sleep(5000)
+
+      home ! Home.ToggleAlarmSystem(pinCode)
+
+      Thread.sleep(20000)
+
+      home ! Home.InteractWithSensor(backYardMotion) // intruder
+      Thread.sleep(5000)
+      home ! Home.InteractWithSensor(loungeWindow)
+      Thread.sleep(2000)
+      home ! Home.InteractWithSensor(loungeMotion)
+      Thread.sleep(4000)
+      home ! Home.InteractWithSensor(hallwayMotion) // gets caught
+
+      Thread.sleep(10000)
+
+      home ! Home.ToggleAlarmSystem(pinCode)
+      Behaviors.stopped
+
+    val config: Config = ConfigFactory.load("application.conf")
+    val system = ActorSystem(rootBehavior, "ClusterSystem", config) // TODO: start on multiple ports??
+    // TODO: double check warning logs, ensure it is able to run on multiple nodes simultaneously
 

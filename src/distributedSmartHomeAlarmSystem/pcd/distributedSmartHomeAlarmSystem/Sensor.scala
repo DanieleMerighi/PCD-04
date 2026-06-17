@@ -1,7 +1,7 @@
 package pcd.distributedSmartHomeAlarmSystem
 
 
-case class Sensor(name: String, `type`: Sensor.Type)
+case class Sensor(id: String, `type`: Sensor.Type)
 
 
 object Sensor:

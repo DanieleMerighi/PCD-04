@@ -1,8 +1,9 @@
 package pcd.distributedSmartHomeAlarmSystem.actors
 
-import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+import org.apache.pekko.actor.typed.{Behavior, SupervisorStrategy}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, TimerScheduler}
-import pcd.distributedSmartHomeAlarmSystem.Sensor
+import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
+import org.apache.pekko.cluster.sharding.typed.scaladsl.{Entity, EntityRef, EntityTypeKey}
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
@@ -12,21 +13,36 @@ object SmartHomeAlarmSystem:
   private val exitDelayDuration: FiniteDuration = 20.second
   private val entryDelayDuration: FiniteDuration = 10.second
 
-  type Ref = ActorRef[Command]
+  type Ref = EntityRef[Command]
+  val Key = EntityTypeKey[Command]("SmartHomeAlarmSystem")
+  val Id = "SmartHomeAlarmSystem"
 
   enum Command:
     case Toggle(code: Int)
     private[SmartHomeAlarmSystem] case HandleDelayEnd()
-    case HandleSensorFiring(source: Sensor)
+    case HandleSensorFiring(id: String)
 
   import Command.*
   export Command.{HandleDelayEnd as _, *}
 
+  def init(pinCode: Int): Entity[Command, ShardingEnvelope[Command]] =
+    Entity(Key)(_ =>
+      Behaviors
+        .supervise(SmartHomeAlarmSystem(pinCode))
+        .onFailure(SupervisorStrategy.restart)
+    )
+
   def apply(pinCode: Int): Behavior[Command] =
     Behaviors.setup: context =>
       context.setLoggerName(classOf[SmartHomeAlarmSystem.type])
-      Behaviors.withTimers: timers =>
-        disarmed(using pinCode, timers)
+      safe(using pinCode)
+
+  private def safe(using pinCode: Int): Behavior[Command] =
+    Behaviors.receivePartial:
+      case (context, Toggle(code)) =>
+        context.log.info(s"Starting the Alarm System in disarmed mode.")
+        Behaviors.withTimers: timers =>
+          disarmed(using pinCode, timers)
 
   private def disarmed(using pinCode: Int, timers: TimerScheduler[Command]): Behavior[Command] =
     Behaviors.receivePartial:
@@ -48,7 +64,7 @@ object SmartHomeAlarmSystem:
     Behaviors.receivePartial(
       disarmingOnPinCode
         .orElse:
-          case (_, HandleSensorFiring(sensor)) =>
+          case (_, HandleSensorFiring(_)) =>
             timers.startSingleTimer((), HandleDelayEnd(), entryDelayDuration)
             entryDelay
     )
