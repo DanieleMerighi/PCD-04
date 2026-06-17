@@ -9,7 +9,7 @@
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{amsmath}
-
+\usepackage{minted}
 
 \usepackage{cleveref} % this must be the last package to be loaded
 
@@ -34,5 +34,41 @@ Assignment \#04
 
 \section{Distributed Critical Sections with a Message-Oriented Middleware}
 
+\subsection{Problem Analysis}
+The objective is to ensure mutually exclusive access to shared resources in a distributed environment without processes having explicit knowledge of one another. From a concurrency perspective, the main challenges are:
+\begin{itemize}
+    \item \textbf{Race Conditions:} Simultaneous lock requests from distributed nodes must be serialized to prevent multiple processes from entering a critical section for the same resource.
+    \item \textbf{Deadlocks and Faults:} A process crashing or disconnecting while holding a lock can halt the system permanently.
+    \item \textbf{State Synchronization:} Lacking shared memory, the system relies entirely on asynchronous message passing, requiring precise correlation between requests and replies.
+    \item \textbf{Starvation:} Queued requests must be managed to ensure fair access when resources become available.
+\end{itemize}
+
+\subsection{Adopted Strategy}
+The solution implements a centralized Lock Manager utilizing RabbitMQ, following an asynchronous RPC pattern.
+\begin{itemize}
+    \item \textbf{Architecture:} A centralized server manages lock states.
+    Clients interact via a centralized request exchange.
+    \item \textbf{Message Routing:} Clients publish acquire and release requests to a shared queue.
+    The server replies with grant messages to client-specific private queues, matching messages via correlation IDs.
+    \item \textbf{Concurrency Control:} The server utilizes a single-thread executor to consume messages.
+    This guarantees sequential processing, eliminating race conditions on the internal state maps and queues.
+    \item \textbf{Hierarchical Locks:} Resources are identified by path-based targets.
+    The server evaluates conflicts by checking if paths are identical or if one is a direct ancestor or descendant.
+    \item \textbf{Fault Tolerance:} Locks are granted with a 15-second lease duration.
+    A scheduled timer evicts expired locks, mitigating deadlocks caused by unresponsive clients.
+    \item \textbf{Client Synchronization:} The client leverages \texttt{CompletableFuture} paired with a concurrent map to block execution until the asynchronous grant message is delivered or a timeout occurs.
+\end{itemize}
+
+\subsection{Execution Instructions}
+To deploy and run the system, execute the following steps:
+\begin{itemize}
+    \item \textbf{Start RabbitMQ:} Launch the message broker container using Docker:
+    \begin{minted}{bash}
+    docker run -it --rm --name rabbitmq \
+      -p 5672:5672 -p 15672:15672 rabbitmq:4-management
+    \end{minted}
+    \item \textbf{Start the Server:} Execute the centralized lock server management application (\texttt{RabbitMQLockServer}) to listen for incoming requests.
+    \item \textbf{Client Lock Utilization:} Distributed processes must instantiate and invoke the provided client interface (\texttt{DistributedLockManager}) to request and release locks on target resources.
+\end{itemize}
 
 \end{document}
