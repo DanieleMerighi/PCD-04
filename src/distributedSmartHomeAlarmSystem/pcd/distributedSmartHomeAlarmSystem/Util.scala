@@ -6,9 +6,8 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import scala.reflect.ClassTag
 
 
-extension [A](behavior: Behavior[A])
-  def interceptThrow(targetMessage: A, throwable: => Throwable)
-                    (implicit interceptMessageClassTag: ClassTag[A]): Behavior[A] =
+extension [A: ClassTag](behavior: Behavior[A])
+  def interceptThrow(targetMessage: A, throwable: => Throwable): Behavior[A] =
     Behaviors.intercept(() =>
       new BehaviorInterceptor[A, A]:
         override def aroundReceive(context: TypedActorContext[A],

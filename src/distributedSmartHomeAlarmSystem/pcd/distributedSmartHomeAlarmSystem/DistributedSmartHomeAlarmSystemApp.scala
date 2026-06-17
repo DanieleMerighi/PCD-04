@@ -132,6 +132,7 @@ object DistributedSmartHomeAlarmSystemApp:
         Thread.sleep(10000)
 
         context.log.info("Simulating failure...")
+        Thread.sleep(2000)
         alarmSystem ! SmartHomeAlarmSystem.ForceFailure
 
         Thread.sleep(2000)
