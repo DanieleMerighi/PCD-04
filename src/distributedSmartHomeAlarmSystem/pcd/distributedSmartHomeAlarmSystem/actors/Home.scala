@@ -4,8 +4,7 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.Behavior
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity, EntityRef, EntityTypeKey}
-import pcd.distributedSmartHomeAlarmSystem.Sensor
-import pcd.distributedSmartHomeAlarmSystem.actors.Home.Command.{InstallAlarmSystem, InteractWithSensor}
+import pcd.distributedSmartHomeAlarmSystem.{CborSerializable, Sensor}
 
 
 object Home:
@@ -14,12 +13,10 @@ object Home:
   val Key = EntityTypeKey[Command]("Home")
   val Id = "Home"
 
-  enum Command:
-    case InstallAlarmSystem(pinCode: Int)
-    case ToggleAlarmSystem(code: Int)
-    case InteractWithSensor(sensor: Sensor)
-
-  export Command.*
+  sealed trait Command extends CborSerializable
+  final case class InstallAlarmSystem(pinCode: Int) extends Command
+  final case class ToggleAlarmSystem(code: Int) extends Command
+  final case class InteractWithSensor(sensor: Sensor) extends Command
 
   def init(sensors: Set[Sensor]): Entity[Command, ShardingEnvelope[Command]] =
     Entity(Key)(_ => Home(sensors))
@@ -34,13 +31,11 @@ object Home:
       case (context, InstallAlarmSystem(pinCode)) =>
         context.log.info("Installing the Alarm System.")
         val sharding = ClusterSharding(context.system)
-        sharding.init(SmartHomeAlarmSystem.init(pinCode))
         val alarmSystem = sharding.entityRefFor(SmartHomeAlarmSystem.Key, SmartHomeAlarmSystem.Id)
-        sharding.init(Keypad.init(alarmSystem))
         val keypad = sharding.entityRefFor(Keypad.Key, Keypad.Id)
         sensors.foreach(sensor =>
           val sensorEntity = sharding.entityRefFor(SensorActor.Key, sensor.id)
-          sensorEntity ! SensorActor.Connect(alarmSystem)
+          sensorEntity ! SensorActor.Connect
         )
         secured(using keypad)
 
@@ -54,6 +49,6 @@ object Home:
       case (context, InteractWithSensor(sensor)) =>
         val sharding = ClusterSharding(context.system)
         val sensorEntity = sharding.entityRefFor(SensorActor.Key, sensor.id)
-        sensorEntity ! SensorActor.Fire()
+        sensorEntity ! SensorActor.Fire
         Behaviors.same
 

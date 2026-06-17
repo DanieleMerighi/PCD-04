@@ -1,14 +1,20 @@
 package pcd.distributedSmartHomeAlarmSystem
 
-import com.typesafe.config.{Config, ConfigFactory}
-import org.apache.pekko.actor.typed.ActorSystem
-import org.apache.pekko.actor.typed.scaladsl.Behaviors
+import com.typesafe.config.{Config, ConfigFactory, ConfigValueFactory}
+import org.apache.pekko.actor.CoordinatedShutdown
+import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
+import org.apache.pekko.actor.typed.{ActorSystem, Behavior}
 import org.apache.pekko.cluster.sharding.typed.scaladsl.ClusterSharding
+import org.apache.pekko.event.slf4j.Logger
 import pcd.distributedSmartHomeAlarmSystem.Sensor.Type.*
-import pcd.distributedSmartHomeAlarmSystem.actors.{Home, SensorActor}
+import pcd.distributedSmartHomeAlarmSystem.actors.*
 
 
 object DistributedSmartHomeAlarmSystemApp:
+
+  private def startup[A](baseConfig: Config, port: Int, rootBehavior: Behavior[A]) =
+    val config = baseConfig.withValue("pekko.remote.artery.canonical.port", ConfigValueFactory.fromAnyRef(port))
+    ActorSystem(rootBehavior, "ClusterSystem", config)
 
   @main
   def app(): Unit =
@@ -56,61 +62,90 @@ object DistributedSmartHomeAlarmSystemApp:
 
     val allSensors = perimeter ++ livingArea ++ sleepingArea
 
+    val pinCode = 1234
+
     val rootBehavior = Behaviors.setup: context =>
       val sharding = ClusterSharding(context.system)
+      sharding.init(ClusterListener.init)
+      val clusterListener = sharding.entityRefFor(ClusterListener.Key, ClusterListener.Id)
+      clusterListener ! ClusterListener.DoSubscribe
       sharding.init(Home.init(allSensors))
-      sharding.init(SensorActor.init)
       val home = sharding.entityRefFor(Home.Key, Home.Id)
+      sharding.init(SensorActor.init)
+      sharding.init(SmartHomeAlarmSystem.init(pinCode))
+      val alarmSystem = sharding.entityRefFor(SmartHomeAlarmSystem.Key, SmartHomeAlarmSystem.Id)
+      sharding.init(Keypad.init(alarmSystem))
 
-      val pinCode = 1234
-      home ! Home.InstallAlarmSystem(pinCode)
+      val showcase = (context: ActorContext[?]) => {
 
-      // Example scenario
+        // Example scenario
 
-      home ! Home.ToggleAlarmSystem(pinCode)
-      Thread.sleep(5000)
+        home ! Home.InstallAlarmSystem(pinCode)
+        Thread.sleep(1000)
+        home ! Home.ToggleAlarmSystem(pinCode)
+        Thread.sleep(5000)
 
-      home ! Home.InteractWithSensor(loungeMotion) // homeowner roaming around
-      home ! Home.InteractWithSensor(hallwayMotion)
+        home ! Home.InteractWithSensor(loungeMotion) // homeowner roaming around
+        home ! Home.InteractWithSensor(hallwayMotion)
 
-      Thread.sleep(5000)
+        Thread.sleep(5000)
 
-      home ! Home.ToggleAlarmSystem(pinCode)
-      Thread.sleep(1000)
-      home ! Home.InteractWithSensor(frontDoor) // on the way out
-      home ! Home.InteractWithSensor(frontYardMotion)
+        home ! Home.ToggleAlarmSystem(pinCode)
+        Thread.sleep(1000)
+        home ! Home.InteractWithSensor(frontDoor) // on the way out
+        home ! Home.InteractWithSensor(frontYardMotion)
 
-      Thread.sleep(5000)
+        Thread.sleep(5000)
 
-      home ! Home.InteractWithSensor(frontYardMotion) // on the way in
-      home ! Home.InteractWithSensor(frontDoor)
-      Thread.sleep(1000)
-      home ! Home.ToggleAlarmSystem(pinCode)
+        home ! Home.InteractWithSensor(frontYardMotion) // on the way in
+        home ! Home.InteractWithSensor(frontDoor)
+        Thread.sleep(1000)
+        home ! Home.ToggleAlarmSystem(pinCode)
 
-      Thread.sleep(5000)
+        Thread.sleep(5000)
 
-      home ! Home.InteractWithSensor(kitchenMotion) // roaming around
+        home ! Home.InteractWithSensor(kitchenMotion) // roaming around
 
-      Thread.sleep(5000)
+        Thread.sleep(5000)
 
-      home ! Home.ToggleAlarmSystem(pinCode)
+        home ! Home.ToggleAlarmSystem(pinCode)
 
-      Thread.sleep(20000)
+        Thread.sleep(20000)
 
-      home ! Home.InteractWithSensor(backYardMotion) // intruder
-      Thread.sleep(5000)
-      home ! Home.InteractWithSensor(loungeWindow)
-      Thread.sleep(2000)
-      home ! Home.InteractWithSensor(loungeMotion)
-      Thread.sleep(4000)
-      home ! Home.InteractWithSensor(hallwayMotion) // gets caught
+        home ! Home.InteractWithSensor(backYardMotion) // intruder
+        Thread.sleep(5000)
+        home ! Home.InteractWithSensor(loungeWindow)
+        Thread.sleep(2000)
+        home ! Home.InteractWithSensor(loungeMotion)
+        Thread.sleep(4000)
+        home ! Home.InteractWithSensor(hallwayMotion) // gets caught
+
+        Thread.sleep(10000)
+
+        home ! Home.ToggleAlarmSystem(pinCode)
+
+        Thread.sleep(1000)
+
+        val _ = CoordinatedShutdown(context.system)
+          .run(CoordinatedShutdown.ActorSystemTerminateReason)
+      }
+      sharding.init(ShowcaseRunner.init(showcase))
+      val showcaseRunner = sharding.entityRefFor(ShowcaseRunner.Key, ShowcaseRunner.Id)
 
       Thread.sleep(10000)
 
-      home ! Home.ToggleAlarmSystem(pinCode)
-      Behaviors.stopped
+      showcaseRunner ! ShowcaseRunner.Run
+      Behaviors.empty
 
-    val config: Config = ConfigFactory.load("application.conf")
-    val system = ActorSystem(rootBehavior, "ClusterSystem", config) // TODO: start on multiple ports??
-    // TODO: double check warning logs, ensure it is able to run on multiple nodes simultaneously
+    Logger.root.info("Starting seed nodes...")
+    val baseConfig = ConfigFactory.load("application.conf")
+    val seeds = Seq(7354, 7355, 7356)
+    seeds.foreach(startup(baseConfig, _, rootBehavior))
+
+
+/*
+ TODO:
+    - check coordinated shutdown
+    - add simulated failure to showcase?
+ */
 

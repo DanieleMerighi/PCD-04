@@ -7,6 +7,7 @@ ThisBuild / libraryDependencies ++= Seq(
   "org.apache.pekko" %% "pekko-actor-typed" % PekkoVersion,
   "org.apache.pekko" %% "pekko-cluster-typed" % PekkoVersion,
   "org.apache.pekko" %% "pekko-cluster-sharding-typed" % PekkoVersion,
+  "org.apache.pekko" %% "pekko-serialization-jackson" % PekkoVersion,
   "ch.qos.logback" % "logback-classic" % "1.5.34"
 )
 
