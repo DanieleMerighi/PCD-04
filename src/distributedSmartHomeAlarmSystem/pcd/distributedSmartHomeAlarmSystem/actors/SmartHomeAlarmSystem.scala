@@ -4,7 +4,7 @@ import org.apache.pekko.actor.typed.{Behavior, SupervisorStrategy}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors, TimerScheduler}
 import org.apache.pekko.cluster.sharding.typed.ShardingEnvelope
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{Entity, EntityRef, EntityTypeKey}
-import pcd.distributedSmartHomeAlarmSystem.CborSerializable
+import pcd.distributedSmartHomeAlarmSystem.{CborSerializable, interceptThrow}
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
@@ -22,6 +22,7 @@ object SmartHomeAlarmSystem:
   final case class Toggle(code: Int) extends Command
   private case object HandleDelayEnd extends Command
   final case class HandleSensorFiring(id: String) extends Command
+  case object ForceFailure extends Command
 
   def init(pinCode: Int): Entity[Command, ShardingEnvelope[Command]] =
     Entity(Key)(context =>
@@ -35,6 +36,7 @@ object SmartHomeAlarmSystem:
       context.setLoggerName(classOf[SmartHomeAlarmSystem.type])
       context.log.info(s"Starting/restarting the Alarm System in safe mode.")
       safe(using pinCode)
+        .interceptThrow(ForceFailure, RuntimeException("Forced failure"))
 
   private def safe(using pinCode: Int): Behavior[Command] =
     Behaviors.receivePartial:

@@ -5,6 +5,7 @@ import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorSystem, Behavior}
 import org.apache.pekko.cluster.sharding.typed.scaladsl.ClusterSharding
+import org.apache.pekko.cluster.typed.Cluster
 import org.apache.pekko.event.slf4j.Logger
 import pcd.distributedSmartHomeAlarmSystem.Sensor.Type.*
 import pcd.distributedSmartHomeAlarmSystem.actors.*
@@ -65,10 +66,14 @@ object DistributedSmartHomeAlarmSystemApp:
     val pinCode = 1234
 
     val rootBehavior = Behaviors.setup: context =>
+
       val sharding = ClusterSharding(context.system)
       sharding.init(ClusterListener.init)
       val clusterListener = sharding.entityRefFor(ClusterListener.Key, ClusterListener.Id)
       clusterListener ! ClusterListener.DoSubscribe
+
+      Thread.sleep(10000)
+
       sharding.init(Home.init(allSensors))
       val home = sharding.entityRefFor(Home.Key, Home.Id)
       sharding.init(SensorActor.init)
@@ -77,6 +82,10 @@ object DistributedSmartHomeAlarmSystemApp:
       sharding.init(Keypad.init(alarmSystem))
 
       val showcase = (context: ActorContext[?]) => {
+
+        val cluster = Cluster(context.system)
+        context.log.info(s"Cluster now has ${cluster.state.members.size} nodes.")
+        Thread.sleep(2000)
 
         // Example scenario
 
@@ -122,17 +131,23 @@ object DistributedSmartHomeAlarmSystemApp:
 
         Thread.sleep(10000)
 
+        context.log.info("Simulating failure...")
+        alarmSystem ! SmartHomeAlarmSystem.ForceFailure
+
+        Thread.sleep(2000)
+
         home ! Home.ToggleAlarmSystem(pinCode)
 
         Thread.sleep(1000)
 
+        context.log.info("Beginning graceful shutdown...")
         val _ = CoordinatedShutdown(context.system)
-          .run(CoordinatedShutdown.ActorSystemTerminateReason)
+          .run(CoordinatedShutdown.clusterLeavingReason)
       }
       sharding.init(ShowcaseRunner.init(showcase))
       val showcaseRunner = sharding.entityRefFor(ShowcaseRunner.Key, ShowcaseRunner.Id)
 
-      Thread.sleep(10000)
+      Thread.sleep(2000)
 
       showcaseRunner ! ShowcaseRunner.Run
       Behaviors.empty
@@ -141,11 +156,4 @@ object DistributedSmartHomeAlarmSystemApp:
     val baseConfig = ConfigFactory.load("application.conf")
     val seeds = Seq(7354, 7355, 7356)
     seeds.foreach(startup(baseConfig, _, rootBehavior))
-
-
-/*
- TODO:
-    - check coordinated shutdown
-    - add simulated failure to showcase?
- */
 

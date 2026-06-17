@@ -37,6 +37,6 @@ object ClusterListener:
   private def active: Behavior[Command] =
     Behaviors.receivePartial:
       case (context, HandleMemberJoined(address)) =>
-        context.log.info(s"Member [$address] joined the cluster.")
+        context.log.info(s"Node [$address] joined the cluster.")
         Behaviors.same
 
