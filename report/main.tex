@@ -30,6 +30,26 @@ Assignment \#04
 
 \section{Distributed Smart Home Alarm System}
 
+The goal of this exercise is to extend the relevant part of the previous assignment to support execution on multiple cluster nodes, while also providing some level of fault tolerance to the alarm control unit.
+
+\subsection{Problem Analysis}
+
+Execution must begin by first creating the underlying cluster. Specifically, an instance of the actor system must be started for each node, while providing the necessary configuration. The configuration should be used to assign a unique address:port pair to each node, while also specifying at least one seed node, so that all nodes can automatically join into a single cluster.
+
+The existing actors should then be initialized to run on the newly created cluster, ensuring that messages can always be sent regardless of physical location. For this reason, all message types will need to be updated to allow for serialization, which is required for actors running on different cluster nodes.
+
+The central control unit should be further modified to restart automatically in case of failure, losing its current state.
+
+\subsection{Adopted Strategy}
+
+The proposed solution makes heavy use of Pekko's cluster sharding capabilities. The motivation for this decision is in the ability to reference domain actors in a way that is completely independent of their physical location. Additionally, it provides balanced distribution of entities across cluster nodes with no additional effort.
+
+In this context, entities can be discovered with a call to \texttt{sharding.entityRefFor} by specifying simply their type key and identifier. Entity types with a single instance, such as the control unit, are given a fixed identifier.
+
+The recovery behavior for the alarm control unit is implemented using supervision, by wrapping the initial behavior with a call to \texttt{Behaviors.supervise}. In case of failure, the provided \texttt{RestartSupervisorStrategy} takes effect, restarting the underlying actor with its initial state (``safe mode'').
+
+The program features a showcase sequence that, compared to the previous assignment, includes a special \texttt{ForceFailure} message to verify the functioning of the recovery behavior. The message gets intercepted by the control unit and causes it to throw an exception, triggering the restart strategy.
+
 \section{Distributed TTT with Java RMI}
 
 \section{Distributed Critical Sections with a Message-Oriented Middleware}
