@@ -140,17 +140,13 @@ class GameImpl {
         if (p == null) {
             return true;
         }
-        boolean reachable;
         try {
             p.observer.ping();
-            reachable = true;
+            p.missed = 0;
         } catch (RemoteException e) {
-            reachable = false;
+            p.missed++;
         }
-        synchronized (this) {
-            p.missed = reachable ? 0 : p.missed + 1;
-            return p.missed < MAX_MISSED_PINGS;
-        }
+        return p.missed < MAX_MISSED_PINGS;
     }
 
     private void abort(Mark disconnected) {
