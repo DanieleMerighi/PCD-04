@@ -26,7 +26,7 @@ public class PlayerApp {
     private Mark myMark;
     private GameSnapshot latest;
 
-    static void main(String[] args) {
+    public static void main(String[] args) {
         System.setProperty("sun.rmi.transport.tcp.responseTimeout", "5000");
 
         String host = args.length > 0 ? args[0] : null;

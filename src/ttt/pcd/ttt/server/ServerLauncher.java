@@ -9,7 +9,7 @@ import java.rmi.server.UnicastRemoteObject;
 
 public class ServerLauncher {
 
-     static void main(String[] args) throws Exception {
+     public static void main(String[] args) throws Exception {
         System.setProperty("sun.rmi.transport.tcp.responseTimeout", "5000");
 
         GameLobbyImpl lobby = new GameLobbyImpl();
