@@ -20,13 +20,16 @@ public class FairParallelismTest {
             LockTarget targetA = LockTarget.GLOBAL.sub("db").sub("tableA");
             LockTarget targetB = LockTarget.GLOBAL.sub("db").sub("tableB");
 
-            var task1 = proc1.executeAsync(targetA, 6000);
+            System.out.println("Starting proc1 execution");
+            var task1 = proc1.executeAsync(targetA, 5000);
             Thread.sleep(500);
 
+            System.out.println("Starting proc2 execution");
             var task2 = proc2.executeAsync(targetA, 2000);
             Thread.sleep(500);
 
-            var task3 = proc3.executeAsync(targetB, 2000);
+            System.out.println("Starting proc3 execution");
+            var task3 = proc3.executeAsync(targetB, 6000);
 
             task1.get();
             task2.get();
