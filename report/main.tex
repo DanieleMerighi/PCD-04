@@ -1,0 +1,96 @@
+\documentclass{scrartcl}
+\usepackage[utf8]{inputenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{natbib}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{minted}
+
+\usepackage{cleveref} % this must be the last package to be loaded
+
+\title{\LARGE
+Assignment \#04
+}
+\subtitle{Concurrent and Distributed Programming\\a.y. 2025--2026}
+
+\author{
+    Buda Marco \and Merighi Daniele \and Turchi Jacopo
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Distributed Smart Home Alarm System}
+
+The goal of this exercise is to extend the relevant part of the previous assignment to support execution on multiple cluster nodes, while also providing some level of fault tolerance to the alarm control unit.
+
+\subsection{Problem Analysis}
+
+Execution must begin by first creating the underlying cluster. Specifically, an instance of the actor system must be started for each node, while providing the necessary configuration. The configuration should be used to assign a unique address:port pair to each node, while also specifying at least one seed node, so that all nodes can automatically join into a single cluster.
+
+The existing actors should then be initialized to run on the newly created cluster, ensuring that messages can always be sent regardless of physical location. For this reason, all message types will need to be updated to allow for serialization, which is required for actors running on different cluster nodes.
+
+The central control unit should be further modified to restart automatically in case of failure, losing its current state.
+
+\subsection{Adopted Strategy}
+
+The proposed solution makes heavy use of Pekko's cluster sharding capabilities. The motivation for this decision is in the ability to reference domain actors in a way that is completely independent of their physical location. Additionally, it provides balanced distribution of entities across cluster nodes with no additional effort.
+
+In this context, entities can be discovered with a call to \texttt{sharding.entityRefFor} by specifying simply their type key and identifier. Entity types with a single instance, such as the control unit, are given a fixed identifier.
+
+The recovery behavior for the alarm control unit is implemented using supervision, by wrapping the initial behavior with a call to \texttt{Behaviors.supervise}. In case of failure, the provided \texttt{RestartSupervisorStrategy} takes effect, restarting the underlying actor with its initial state (``safe mode'').
+
+The program features a showcase sequence that, compared to the previous assignment, includes a special \texttt{ForceFailure} message to verify the functioning of the recovery behavior. The message gets intercepted by the control unit and causes it to throw an exception, triggering the restart strategy.
+
+\section{Distributed TTT with Java RMI}
+
+\section{Distributed Critical Sections with a Message-Oriented Middleware}
+
+\subsection{Problem Analysis}
+The objective is to ensure mutually exclusive access to shared resources in a distributed environment without processes having explicit knowledge of one another. From a concurrency perspective, the main challenges are:
+\begin{itemize}
+    \item \textbf{Race Conditions:} Simultaneous lock requests from distributed nodes must be serialized to prevent multiple processes from entering a critical section for the same resource.
+    \item \textbf{Deadlocks and Faults:} A process crashing or disconnecting while holding a lock can halt the system permanently.
+    \item \textbf{State Synchronization:} Lacking shared memory, the system relies entirely on asynchronous message passing, requiring precise correlation between requests and replies.
+    \item \textbf{Starvation:} Queued requests must be managed to ensure fair access when resources become available.
+\end{itemize}
+
+\subsection{Adopted Strategy}
+The solution implements a \textbf{Centralized Algorithm} for mutual exclusion  utilizing a Message-Oriented Middleware (RabbitMQ). This approach guarantees that processes do not require explicit knowledge of one another, achieving \textbf{loose coupling}.
+
+\begin{itemize}
+    \item \textbf{Architecture \& Loose Coupling:} A centralized coordinator (the server) manages lock states and access permissions.
+    Distributed processes act as clients, completely unaware of each other's existence, interacting solely with the MOM via a centralized request exchange.
+    \item \textbf{Message Routing (Point-to-Point):} Clients publish \texttt{acquire} and \texttt{release} requests to a shared public queue.
+    The server processes these and replies with grant messages to temporary, client-specific private queues, matching messages via correlation IDs to implement a response-based transient synchronous communication.
+    \item \textbf{Concurrency Control \& Fairness:} The server consumes messages using a single-thread executor.
+    This guarantees a sequential processing of incoming requests, eliminating race conditions and ensuring fairness, as requests are handled in the order they are consumed by the broker.
+    \item \textbf{Hierarchical Locks:} Resources are identified by path-based targets.
+    The server evaluates conflicts by checking if paths are identical or if one is a direct ancestor or descendant.
+    \item \textbf{Fault Tolerance \& Liveness:} To prevent deadlocks caused by crashed or disconnected processes holding a lock, locks are granted with a 15-second lease duration.
+    A scheduled timer evicts expired locks, ensuring the liveness property (every request is eventually granted) of the critical section.
+    \item \textbf{Client Synchronization:} To bridge the asynchronous interaction model of the MOM with the blocking semantics expected of a lock acquisition, the client leverages \texttt{CompletableFuture} paired with a concurrent map.
+    This blocks the client's execution thread until the asynchronous grant message is delivered or a timeout occurs.
+\end{itemize}
+
+\subsection{Execution Instructions}
+To deploy and run the system, execute the following steps:
+\begin{itemize}
+    \item \textbf{Start RabbitMQ:} Launch the message broker container using Docker:
+    \begin{minted}{bash}
+    docker run -it --rm --name rabbitmq \
+      -p 5672:5672 -p 15672:15672 rabbitmq:4-management
+    \end{minted}
+    \item \textbf{Start the Server:} Execute the centralized lock server management application (\texttt{RabbitMQLockServer}) to listen for incoming requests.
+    \item \textbf{Client Lock Utilization:} Distributed processes must instantiate and invoke the provided client interface (\texttt{DistributedLockManager}) to request and release locks on target resources.
+\end{itemize}
+
+\end{document}
