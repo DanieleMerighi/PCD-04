@@ -52,6 +52,38 @@ The program features a showcase sequence that, compared to the previous assignme
 
 \section{Distributed TTT with Java RMI}
 
+This exercise asks for a distributed system that lets two remote players play Tic-Tac-Toe. A player can create a new game with a chosen name and wait for an opponent, or join an existing game given its name. The system is built around the distributed object computing model, using Java RMI as the underlying RPC mechanism.
+
+\subsection{Problem Analysis}
+
+From a concurrent and distributed point of view, the interesting part of the problem is not the game logic, which is trivial, but the management of \emph{shared mutable state accessed by remote, independent and possibly faulty parties}. Three aspects are particularly relevant for the design:
+
+\begin{itemize}
+\item \textbf{Concurrent access to the game state.} RMI dispatches every incoming remote call on a thread taken from an internal pool, so calls from the two players (and the server's own background tasks) run on different threads at the same time. The board, the current turn and the game status form a single piece of state that must be kept consistent: without coordination, two moves could interleave and corrupt the board or let a player move out of turn.
+
+\item \textbf{Distributed notification (callbacks).} A move made by one player must be reflected on the other player's screen. Since neither client knows about the other, the server has to push updates back to the clients. This is naturally an \emph{observer pattern realised over the network}: the client registers a remote callback object and the server invokes it. A remote callback is itself a blocking RPC that can be slow or fail, so it must not be performed while holding the lock on the game state.
+
+\item \textbf{Partial failure.} In a distributed system a peer can crash or disconnect silently, and an RPC can hang or throw. A player must not be left waiting forever for an opponent that will never move, so the system needs a way to detect unreachable peers and to react by aborting the game and releasing the associated remote resources.
+\end{itemize}
+
+\subsection{Adopted Strategy}
+
+The code is organised in three packages. \texttt{common} holds the RMI interfaces (\texttt{GameLobby}, \texttt{Game}, \texttt{GameObserver}) and the data exchanged between the parties, \texttt{server} holds their implementation, and \texttt{client} holds the interactive player application. The interfaces and the value objects are the only types shared by both sides.
+
+\paragraph{Remote interfaces.} \texttt{GameLobby} is the single entry point published in the RMI registry: it exposes \texttt{createGame}, \texttt{joinGame} and \texttt{listGames}. Both \texttt{createGame} and \texttt{joinGame} return a \texttt{Game} stub, the remote object the player uses to send its moves through \texttt{makeMove}. In the opposite direction, the client exports a \texttt{GameObserver} so that the server can call back \texttt{onStateChange} whenever the game evolves. All the data that crosses the network (\texttt{Board}, \texttt{Move}, \texttt{Mark}, \texttt{GameStatus} and the \texttt{GameSnapshot} that bundles them) are immutable, \texttt{Serializable} value objects, so they are passed \emph{by value} as self-contained copies and cannot be a source of shared state between the two JVMs.
+
+\paragraph{State consistency.} Each game is a \texttt{GameImpl} instance that owns its board, turn and status. All the methods that read or change this state (\texttt{makeMove}, \texttt{join}, the abort and liveness logic) operate inside \texttt{synchronized} blocks on the game object, so the game behaves as a \emph{monitor}: concurrent remote calls are serialised and the state always moves through legal transitions. Illegal actions (moving out of turn, moving on an occupied cell, moving before the opponent joined) are rejected with a \texttt{GameException}, which travels back to the offending client only. The \texttt{Board} is immutable: placing a mark returns a new board, which makes it safe to put a board inside a snapshot and hand it to another thread. The lobby itself keeps the running games in a \texttt{ConcurrentHashMap} and manipulates it only through its atomic operations (\texttt{putIfAbsent} to register a new game, \texttt{computeIfPresent} to attach the second player, \texttt{remove} to retire a finished game): creating, joining and listing games are therefore safe under concurrent calls without serialising every request on a single lobby-wide lock.
+
+\paragraph{Decoupling notifications from the critical section.} The state transition and the notification are decided together while holding the lock, but the actual remote callback must not run there, otherwise a slow or unreachable client would block the whole game. Each player therefore has a dedicated single-thread executor (the \emph{notifier}). Inside the synchronized block we only \emph{submit} the freshly computed snapshot to each player's notifier, and the slow RPC happens outside the lock. Using one thread per player also guarantees that snapshots are delivered to that player in the same order they were produced.
+
+\paragraph{Per-player stubs.} Instead of letting both players share one \texttt{Game} object, the lobby exports a small \texttt{PlayerProxy} per player, each bound to a fixed \texttt{Mark} (X for the creator, O for the joiner). When a proxy receives \texttt{makeMove}, it forwards the call together with its own mark, so a player can only ever play as itself and the server does not have to trust a mark sent over the wire.
+
+\paragraph{Failure detection.} \texttt{GameObserver} also declares a \texttt{ping} method. A shared scheduled executor periodically pings the observers of the active games. A player that misses several consecutive pings, or whose callback throws a \texttt{RemoteException}, is considered gone. The game is then moved to the \texttt{ABORTED} status, the surviving player is notified, and the game terminates. A short RMI response timeout is set so that a broken connection fails fast instead of blocking the heartbeat. On the client side, \texttt{makeMove} is retried a few times before giving up, to tolerate transient network glitches.
+
+\paragraph{Resource lifecycle.} Every exported object reserves resources in the RMI runtime, so they must be released when no longer needed. When a game ends (by victory, draw or abort) its monitoring task is cancelled and its notifier threads are shut down, then the lobby removes the game from its registry and unexports both player proxies. The client likewise unexports its observer on exit. Unexport is forced, so an exported object is reclaimed even if a remote call is still in flight, and the lobby ignores the failure of a single unexport so that one stuck stub cannot prevent the rest of the game from being cleaned up.
+
+\paragraph{Client application.} The player application is a simple text client. Because the user types moves while updates may arrive from the server at any moment, a separate thread reads the keyboard and the main loop waits, with a classic \texttt{wait}/\texttt{notify} guarded by a lock, on whichever happens first between a new snapshot and a line of input. This keeps the screen reactive: if the opponent moves or disconnects while the player is being prompted, the client immediately re-renders the new state instead of staying stuck on the prompt.
+
 \section{Distributed Critical Sections with a Message-Oriented Middleware}
 
 \subsection{Problem Analysis}
