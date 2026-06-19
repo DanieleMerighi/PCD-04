@@ -153,8 +153,8 @@ object DistributedSmartHomeAlarmSystemApp:
       showcaseRunner ! ShowcaseRunner.Run
       Behaviors.empty
 
-    Logger.root.info("Starting seed nodes...")
+    Logger.root.info("Starting cluster nodes...")
     val baseConfig = ConfigFactory.load("application.conf")
-    val seeds = Seq(7354, 7355, 7356)
-    seeds.foreach(startup(baseConfig, _, rootBehavior))
+    val nodes = Seq(7354, 7355, 7356)
+    nodes.foreach(startup(baseConfig, _, rootBehavior))
 

@@ -25,7 +25,7 @@ object SmartHomeAlarmSystem:
   case object ForceFailure extends Command
 
   def init(pinCode: Int): Entity[Command, ShardingEnvelope[Command]] =
-    Entity(Key)(context =>
+    Entity(Key)(_ =>
       Behaviors
         .supervise(SmartHomeAlarmSystem(pinCode))
         .onFailure(SupervisorStrategy.restart)
