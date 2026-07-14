@@ -37,12 +37,8 @@ public class RabbitMQLockManagerClient implements DistributedLockManager {
         this.replyChannel = connection.createChannel();
 
         requestChannel.exchangeDeclare(RabbitConfig.REQUEST_EXCHANGE, BuiltinExchangeType.DIRECT, true);
-        requestChannel.queueDeclare(RabbitConfig.REQUEST_QUEUE, true, false, false, null);
-        requestChannel.queueBind(RabbitConfig.REQUEST_QUEUE, RabbitConfig.REQUEST_EXCHANGE, RabbitConfig.ROUTING_ACQUIRE);
-        requestChannel.queueBind(RabbitConfig.REQUEST_QUEUE, RabbitConfig.REQUEST_EXCHANGE, RabbitConfig.ROUTING_RELEASE);
 
-        this.replyQueueName = "reply_" + processId;
-        replyChannel.queueDeclare(replyQueueName, false, true, true, null);
+        this.replyQueueName = replyChannel.queueDeclare().getQueue();
         replyChannel.basicConsume(replyQueueName, true, this::handleGrantDelivery, consTag -> {});
 
         System.out.printf("[%s] Client initialized. replyQueue=%s%n", processId, replyQueueName);
